@@ -1,0 +1,264 @@
+---
+title: "Models"
+format: 
+  html:
+    self-contained: true
+    toc: true
+execute: 
+  echo: true
+  warning: false
+code-fold: show
+knitr: 
+  opts_chunk: 
+    message: false
+---
+## Setup
+
+
+```{r setup}
+#| code-fold: true
+library(tidyr)        # Data wrangling
+library(dplyr)        # 
+library(readr)        # 
+library(purrr)        #
+library(brms)         # Bayesian modeling
+library(contrastable) # For contrast coding
+library(here)         # For managing paths
+library(cmdstanr)     # Bayesian backend
+library(sosprosody)   # devtools::install_github('tsostarics/sosprosody')
+library(ggplot2)
+
+source(here::here("Helpers/model_helpers.R"))
+source(here::here("Helpers/continuum_utils.R")) # For stimulus information
+source(here::here("Helpers/plot_helpers.R"))    # Code for making plots
+
+# Original data files are part of a larger project
+exp1_data <- 
+  readr::read_csv(here::here("Data/exp1_data.csv")) |> 
+  cbind(experiment = 'exp1') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+exp2_data <- 
+  readr::read_csv(here::here("Data/exp2_data.csv")) |> 
+  cbind(experiment = 'exp2') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+
+exp3_data <- 
+  readr::read_csv(here::here("Data/exp3_data.csv")) |> 
+  cbind(experiment = 'exp3') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+```
+
+Here we line up the pitch accent steps for the monotonal and L+H* experiments.
+```{r match-exp1-2-dfs}
+matched_subset_df <- 
+  exp2_data |> 
+  mutate(pa_step = pa_step + 1) |> 
+  rbind(exp1_data) |>
+  dplyr::select(subj_id,
+                utterance,
+                pa_step,
+                bt_step,
+                pa_st,
+                bt_st,
+                response_binary,
+                st_diff,
+                tcog_f_semitone,
+                global_pattern,
+                experiment) |> 
+  mutate(pa_step_fac = factor(pa_step),
+         bt_step_fac = factor(bt_step)) |> 
+    contrastable::set_contrasts(experiment ~ scaled_sum_code + "exp1")
+```
+
+
+## Priors
+
+```{r priors}
+regularizing_priors <- 
+  c(
+    prior(normal(0, .5), class = b),
+    prior(normal(.3, .4), class = sd),
+    prior(normal(0,2), class = Intercept)
+  )
+
+regularizing_priors_slopes <- 
+  c(
+    prior(normal(0, .5), class = b),
+    prior(normal(.3, .4), class = sd), 
+    prior(lkj(2), class = cor),
+    prior(normal(0,2), class = Intercept)
+  )
+
+```
+
+## Exp1 vs Exp2 model
+
+The goal here is to show that in experiment 4, the same basic effect of
+`bt_st` holds, but its magnitude is attenuated relative to experiment 2.
+This is shown through the interaction terms that include bt_st and experiment.
+
+```{r fit-exp2v4-models}
+#| code-fold: true
+
+exp1_vs_2_mdl <- 
+  brms::brm(response_binary ~ pa_st * bt_st * experiment + 
+              (1+bt_st*pa_st|subj_id)+
+              (1|utterance),
+            data    = matched_subset_df,
+            family  = bernoulli,
+            prior   = regularizing_priors_slopes,
+            control = list(adapt_delta = .95),
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_vs_2_mdl.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+summary(exp1_vs_2_mdl)
+```
+
+## Exp 1 model
+
+```{r exp1-mdl}
+exp1_mdl <- 
+  brms::brm(response_binary ~ bt_st *pa_st + 
+              (1+bt_st*pa_st|subj_id)+
+              (1|utterance),
+            data    = exp1_data,
+            family  = bernoulli,
+            prior   = regularizing_priors_slopes,
+            control = list(adapt_delta = .95),
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp1_mdl.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+summary(exp1_mdl)
+```
+
+
+## Exp 2 model
+
+```{r fit-exp2-mdls}
+
+# Fit the model for the exp 2 data
+exp2_mdl <- 
+  brms::brm(response_binary ~ bt_st *pa_st + 
+              (1+bt_st*pa_st|subj_id)+
+              (1|utterance),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = regularizing_priors_slopes,
+            control = list(adapt_delta = .95),
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_mdl.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+
+# Model without the interaction
+exp2_mdl_noint <- 
+  brms::brm(response_binary ~ bt_st + pa_st + 
+              (1+bt_st+pa_st|subj_id)+
+              (1|utterance),
+            data    = exp2_data,
+            family  = bernoulli,
+            prior   = regularizing_priors_slopes,
+            control = list(adapt_delta = .95),
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_mdl_noint.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+# Model comparison
+looexp2 <- add_criterion(exp2_mdl,criterion = 'loo')
+looexp2_noint <- add_criterion(exp2_mdl_noint, criterion = 'loo')
+loo_compare(looexp2, looexp2_noint)
+
+
+# Rerunning the model to get the simple effect of pa_st for the falling group
+exp2_mdl_data2 <- contrastable::set_contrasts(exp2_data,
+                                              global_pattern ~ treatment_code + "falling")
+
+exp2_pattern_mdl <- 
+  brms::brm(response_binary ~ pa_st *global_pattern + 
+              (1+pa_st|subj_id)+
+              (1|utterance),
+            data    = exp2_mdl_data2,
+            family  = bernoulli,
+            prior   = regularizing_priors_slopes,
+            control = list(adapt_delta = .95),
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp2_pattern_mdl.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+```
+
+
+```{r exp2-mdls}
+summary(exp2_mdl_noint)
+
+summary(exp2_pattern_mdl)
+```
+
+
+## Exp. 3 model
+
+Here we fit the model for the experiment 3 data.
+Important to remember that we're no longer interested in `pa_step` as it's
+been used previously, since this corresponds to the peak target value.
+In this experiment, this value is held constant.
+What varies is the alignment, which we create a new value `al_step` for below.
+The values are interpreted as centered percentage of the stressed syllable duration,
+so .8 is that the alignment is at 80% of the stressed syllable and 1.15 is
+115% of the stressed syllable, ie, within the second syllable.
+Take these, subtract 1, and you get -.2 to .15, or -20% and +15%
+
+```{r exp3-mdl}
+exp3_mdl_data <- 
+  exp3_data |> 
+  left_join(
+    data.frame(pa_step = 1:5,
+               al_step = seq(.8,1.15,length.out = 5) - 1) # -1 to center on 1
+  )
+
+exp3_mdl <- 
+  brms::brm(response_binary ~ al_step * bt_st + 
+              (1+bt_st*al_step|subj_id)+
+              (1|utterance),
+            data    = exp3_mdl_data,
+            family  = bernoulli,
+            prior   = regularizing_priors_slopes,
+            control = list(adapt_delta = .95),
+            cores   = 4,
+            threads = threading(3),
+            file    = here::here("Models/exp3_mdl.rds"),
+            backend = "cmdstanr",
+            seed    = 111,
+            file_refit = "on_change")
+
+summary(exp3_mdl)
+```
+
+```{r}
+sessionInfo()
+```
+

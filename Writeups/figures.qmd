@@ -1,0 +1,255 @@
+---
+title: "Figures"
+format: 
+  html:
+    self-contained: true
+    toc: false
+execute: 
+  echo: true
+  warning: false
+knitr: 
+  opts_chunk: 
+    message: false
+fig-dpi: 100
+---
+
+```{r fontsetup}
+#| eval: false
+
+# Run this if there are issues using the custom fonts
+library(extrafont)
+extrafont::font_import()
+```
+
+```{r setup}
+library(dplyr)        # Data wrangling
+library(tidyr)        # Data wrangling
+library(readr)        # Data wrangling
+library(ggplot2)      # Plotting
+library(colorspace)   # Diverging color palette
+library(showtext)     # For plot font
+library(contrastable) # For contrast coding 
+library(ggeffects)    # For computing predictions from models for plots
+library(here)         # For managing directories
+library(brms)         # Managing brms models
+library(tidybayes)    # For pulling predictions
+library(modelr)       # For data_grid function
+library(sosprosody)   # 
+library(Cairo)        # Figure output device
+
+source(here::here("Helpers/continuum_utils.R")) # For stimulus information
+source(here::here("Helpers/plot_helpers.R"))    # Code for making plots
+
+# For plot fonts, not strictly needed
+sysfonts::font_add_google("Roboto") # Font for plots
+
+exp1_data <- 
+  readr::read_csv(here::here("Data/exp1_data.csv")) |> 
+  cbind(experiment = 'exp1') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+exp2_data <- 
+  readr::read_csv(here::here("Data/exp2_data.csv")) |> 
+  cbind(experiment = 'exp2') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+
+exp3_data <-
+  readr::read_csv(here::here("Data/exp3_data.csv")) |> 
+  cbind(experiment = 'exp3') |> 
+  dplyr::mutate(pa_st = sosprosody::hz_to_semitones(start, 90),
+                bt_st = sosprosody::hz_to_semitones(end, 90)) |> 
+  contrastable::set_contrasts(global_pattern ~ scaled_sum_code)
+
+# full_data <- rbind(exp1_data, exp1_data)
+```
+
+```{r schematic-tunes}
+# Create dataframes for the stimulus information
+exp1_tunes <- readRDS(here::here("Data/exp1_tunes"))
+exp2_tunes <-
+  readRDS(here::here("Data/exp2_tunes")) |>
+  dplyr::filter(position != 'prenuclear')
+exp3_tunes <- 
+  readRDS(here::here("Data/exp3_tunes")) |> 
+  dplyr::mutate(y_position = ifelse(position == 'prenuclear',
+                                    y_position - .1,
+                                    y_position),
+                x_position, ifelse(position == 'prenuclear',
+                                   .75,
+                                   x_position)) |> 
+  dplyr::filter(!(position == 'prenuclear' & pa_step == 1))
+```
+
+```{r exp1-heatmaps}
+#| fig-height: 6
+#| fig-width: 6
+# 580x580 for SVG, 6inx6in for PDF
+
+# Plot the heatmaps for Figures 2, 3, 4
+
+exp1_heatmap <- 
+  plot_experiment_heatmap(exp1_data, exp1_tunes,.show_type = FALSE) +
+  colorspace::scale_fill_continuous_diverging(
+    'Blue-Red3', 
+    mid = .50,
+    limits = c(0,1),
+    breaks = c(0,1),
+    labels = c("0","100"),
+    guide = guide_colorbar(title = "% Telling",
+                           frame.colour = 'black',
+                           title.position = 'top',
+                           label.position = 'top')) +
+  # Plot black line
+  geom_step(data = data.frame(x = c(.5, 2.5,
+                                    2.5, 4.5,
+                                    4.5, 5.78),
+                              y = c(1.5, 1.5,
+                                    2.5, 2.5, 
+                                    3.5, 3.5)),
+            aes(x = x, y = y),
+            inherit.aes = FALSE,
+            linewidth = 3,
+            color = 'black') +
+  # Add global pattern labels
+  annotate(x = 5.55,
+           y = 3.5,
+           hjust = 0,
+           size = 4,
+           family = "Roboto",
+           geom = 'text',
+           label = "Rising\n\nFalling") +
+  xlab("Accentual Pitch Step (Low to High)") +
+  ylab("Ending Pitch Step (Low to High)")
+
+exp2_heatmap <-
+  plot_experiment_heatmap(exp2_data, exp2_tunes,.show_type = FALSE) +
+  colorspace::scale_fill_continuous_diverging(
+    'Blue-Red3', 
+    mid = .50,
+    limits = c(0,1),
+    breaks = c(0,1),
+    labels = c("0","100"),
+    guide = guide_colorbar(title = "% Telling",
+                           frame.colour = 'black',
+                           title.position = 'top',
+                           label.position = 'top'))+
+  geom_step(data = data.frame(x = c(.5, 1.5,
+                                    1.5, 3.5,
+                                    3.5, 5.78),
+                              y = c(1.5, 1.5,
+                                    2.5, 2.5, 
+                                    3.5, 3.5)),
+            aes(x = x, y = y),
+            inherit.aes = FALSE,
+            linewidth = 3,
+            color = 'black') +
+  annotate(x = 5.55,
+           y = 3.5,
+           hjust = 0,
+           size = 4,
+           family = "Roboto",
+           geom = 'text',
+           label = "Rising\n\nFalling") +
+  xlab("Accentual Pitch Step (Low to High)") +
+  ylab("Ending Pitch Step (Low to High)")
+
+# Dataframe to plot vertical lines for peak alignment
+segments_df <- 
+  expand.grid(x = .5496,
+              xend = .5496,
+              pa_step = 1:5,
+              bt_step = 1:5) |> 
+  mutate(y = bt_step - .4,
+         yend = bt_step + .3,
+         x = x / 2 + pa_step - .25,
+         xend = xend / 2 + pa_step - .25)
+
+exp3_heatmap <-
+  plot_experiment_heatmap(exp3_data, exp3_tunes,.show_type = FALSE)+
+  colorspace::scale_fill_continuous_diverging(
+    'Blue-Red3', 
+    mid = .50,
+    limits = c(0,1),
+    breaks = c(0,1),
+    labels = c("0","100"),
+    guide = guide_colorbar(title = "% Telling",
+                           frame.colour = 'black',
+                           title.position = 'top',
+                           label.position = 'top'))+
+  geom_step(data = data.frame(x = c(.5, 5.78),
+                              y = c(3.5, 3.5)),
+            aes(x = x, y = y),
+            inherit.aes = FALSE,
+            linewidth = 3,
+            color = 'black') +
+  annotate(x = 5.55,
+           y = 3.5,
+           hjust = 0,
+           size = 4,
+           family = "Roboto",
+           geom = 'text',
+           label = "Rising\n\nFalling") +
+  geom_segment(data = segments_df,
+               aes(x = x, y = y, xend = xend, yend = yend),
+               color = 'gray90',
+               # size = 1,
+               # linetype = 'dotted',
+               inherit.aes = FALSE) +
+  xlab("Pitch Accent Alignment Step (Early to Late)")+
+  ylab("Ending Pitch Step (Low to High)")
+
+# Put the vertical lines below the schematic contours
+exp3_heatmap$layers <- exp3_heatmap$layers[c(1,8,2:7)]
+
+
+ggplot2::ggsave(exp1_heatmap, 
+                filename = here::here("Figures/exp1_heatmap.svg"), 
+                device = 'svg',
+                width = 6, 
+                height = 6)
+
+ggplot2::ggsave(exp2_heatmap, 
+                filename = here::here("Figures/exp2_heatmap.svg"), 
+                device = 'svg',
+                width = 6, 
+                height = 6)
+
+ggplot2::ggsave(exp3_heatmap, 
+                filename = here::here("Figures/exp3_heatmap.svg"), 
+                device = 'svg',
+                width = 6, 
+                height = 6)
+
+
+ggplot2::ggsave(exp1_heatmap, 
+                filename = here::here("Figures/exp1_heatmap.pdf"), 
+                device = cairo_pdf,
+                width = 6, 
+                height = 6)
+
+ggplot2::ggsave(exp2_heatmap, 
+                filename = here::here("Figures/exp2_heatmap.pdf"), 
+                device = cairo_pdf,
+                width = 6, 
+                height = 6)
+
+ggplot2::ggsave(exp3_heatmap, 
+                filename = here::here("Figures/exp3_heatmap.pdf"), 
+                device = cairo_pdf,
+                width = 6, 
+                height = 6)
+exp1_heatmap
+exp2_heatmap
+exp3_heatmap
+```
+
+
+```{r}
+sessionInfo()
+```
+
